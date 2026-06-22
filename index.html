@@ -277,18 +277,31 @@
   body.clientmode .cl-chk{display:none!important;}
   body.clientmode .opt-chk,body.clientmode .cl-keep,body.clientmode .plan-choice{display:inline-block!important;}
   body.signing .opt-chk{outline:2px solid var(--brass);outline-offset:1px;}
+  body.signing .opt-qty{outline:1.5px solid var(--brass);outline-offset:1px;background:var(--field);}
   .plan-choice-wrap{display:flex;align-items:center;gap:7px;margin-top:9px;font-size:13px;font-weight:600;color:var(--brass);cursor:pointer;}
   .plan-choice{width:17px;height:17px;accent-color:var(--brass);}
   .plan.chosen{outline:2px solid var(--brass);outline-offset:-1px;}
   .plan.dim{opacity:.5;}
   .sig-pad{border:1px dashed var(--hair-strong);border-radius:3px;background:var(--field);width:320px;max-width:100%;height:110px;touch-action:none;cursor:crosshair;display:block;}
+  .sig-pad-sm{border:1px dashed var(--hair-strong);border-radius:3px;background:var(--field);width:240px;max-width:62vw;height:64px;touch-action:none;cursor:crosshair;display:block;}
+  .sig-inline{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;}
+  .sig-slot.has-pad{border:none!important;width:auto!important;}
+  .seal-sm{height:48px;width:auto;}
+  .client-submit{display:none;text-align:center;margin:22px 0 4px;}
+  body.signing .client-submit{display:block;}
+  .btn.big{font-size:15px;padding:13px 34px;}
   .sig-clear{margin-top:6px;}
+  .price-cell{text-align:right;}
+  .price-show{display:none;}
+  body.clientmode .price-show{display:inline-block!important;}
+  .disc-tag{font-size:9px;color:var(--brass);font-weight:600;letter-spacing:.04em;}
   .chosen-banner{font-family:"Noto Serif TC";font-weight:600;font-size:13px;color:var(--brass);margin-top:8px;}
   body.signed .signbar .btn.primary{opacity:.4;pointer-events:none;}
   body.loading .sheet{opacity:.4;}
 
   @media print{
-    .signbar,.toast,.linkbox,.plan-choice-wrap{display:none!important;}
+    .signbar,.toast,.linkbox,.plan-choice-wrap,.client-submit,.sig-clear{display:none!important;}
+    .price-show{display:inline-block!important;}
     body.clientmode .sheet{opacity:1!important;}
   }
 </style>
@@ -373,7 +386,7 @@
         </div>
         <div class="plan-body">
           <table>
-            <thead><tr><th style="width:32%">項目</th><th class="num" style="width:12%">數量</th><th class="ctr" style="width:13%">單位</th><th class="num" style="width:18%">單價</th><th class="num" style="width:15%">小計</th><th class="no-print" style="width:10%"></th></tr></thead>
+            <thead><tr><th style="width:32%">項目</th><th class="num" style="width:12%">數量</th><th class="ctr" style="width:13%">單位</th><th class="num" style="width:18%">單價</th><th class="num no-print">門檻↑</th><th class="num no-print">優惠價</th><th class="num" style="width:15%">小計</th><th class="no-print" style="width:10%"></th></tr></thead>
             <tbody id="itemsA"></tbody>
           </table>
         </div>
@@ -390,7 +403,7 @@
         </div>
         <div class="plan-body">
           <table>
-            <thead><tr><th style="width:32%">項目</th><th class="num" style="width:12%">數量</th><th class="ctr" style="width:13%">單位</th><th class="num" style="width:18%">單價</th><th class="num" style="width:15%">小計</th><th class="no-print" style="width:10%"></th></tr></thead>
+            <thead><tr><th style="width:32%">項目</th><th class="num" style="width:12%">數量</th><th class="ctr" style="width:13%">單位</th><th class="num" style="width:18%">單價</th><th class="num no-print">門檻↑</th><th class="num no-print">優惠價</th><th class="num" style="width:15%">小計</th><th class="no-print" style="width:10%"></th></tr></thead>
             <tbody id="itemsB"></tbody>
           </table>
         </div>
@@ -429,7 +442,7 @@
   <div class="sign">
     <div class="signco">
       <span>客戶簽章</span>
-      <div class="seals" id="custSeals"></div>
+      <div class="seals" id="custSeals" data-sign="cust"></div>
       <div class="line" id="custDate">日期：　　　　　　</div>
     </div>
     <div class="signco">
@@ -440,6 +453,11 @@
       </div>
       <div class="line">承辦：　　　　　　</div>
     </div>
+  </div>
+
+  <div class="client-submit no-print">
+    <button class="btn primary big" onclick="submitClientSign()">確認並送出簽署</button>
+    <div style="font-size:11.5px;color:var(--muted);margin-top:7px">請於施工說明、履保、客戶簽章三處簽名後送出</div>
   </div>
 
 </div>
@@ -476,8 +494,7 @@
   const num=el=>el?(parseFloat(el.value)||0):0;
 
   /* 工程項目庫（依工法分組，可自訂） */
-  const ITEMS=[
-    {g:'立體防水系統工法',items:[
+     {g:'立體防水系統工法',items:[
       {n:'結構裂縫補強注入',u:'式',p:350},
       {n:'頂樓拆除既有面磚、清運廢料',u:'m²',p:450},
       {n:'外牆結構裂縫修補',u:'式',p:12280},
@@ -505,7 +522,9 @@
       </td>
       <td><input class="num qty" type="number" min="0" oninput="recalc()"></td>
       <td><input class="ctr unit" value="m²" style="text-align:center"></td>
-      <td><input class="num price" type="number" min="0" oninput="recalc()"></td>
+      <td class="price-cell"><input class="num price no-print" type="number" min="0" oninput="recalc()"><span class="price-show">$ 0</span></td>
+      <td class="no-print"><input class="num qty-th" type="number" min="0" placeholder="—" oninput="recalc()"></td>
+      <td class="no-print"><input class="num price-sale" type="number" min="0" placeholder="—" oninput="recalc()"></td>
       <td class="sub">$ 0</td>
       <td class="no-print rowtools">
         <span class="mv-col">
@@ -520,6 +539,8 @@
       tr.querySelector('.qty').value=data.qty??'';
       tr.querySelector('.unit').value=data.unit||'m²';
       tr.querySelector('.price').value=data.price??'';
+      tr.querySelector('.qty-th').value=data.qtyTh??'';
+      tr.querySelector('.price-sale').value=data.priceSale??'';
     }
     autosize(tr.querySelector('.item-name'));recalc();
   }
@@ -614,11 +635,11 @@
       <div class="cl-extra">
         <label><input type="checkbox" class="cl-keep" onclick="oneKeep(this)"> 保留</label>
         <label><input type="checkbox" class="cl-keep" onclick="oneKeep(this)"> 不保留</label>
-        <span class="sig-line">簽名：<span class="sig-blank"></span></span>
+        <span class="sig-line">簽名：<span class="sig-blank sig-slot" data-sign="site"></span></span>
       </div>`:c.type==='escrow'?`
       <div class="cl-extra">
         <span class="sig-line">履保費用：<input class="esc-fee" placeholder="　　　　"> 元</span>
-        <span class="sig-line">簽章：<span class="sig-blank"></span></span>
+        <span class="sig-line">簽章：<span class="sig-blank sig-slot" data-sign="escrow"></span></span>
       </div>`:'';
     return `<div class="clause ${c.chk?'':'off'}">
       <div class="cl-row">
@@ -708,8 +729,14 @@
   function planSum(which){
     let s=0;
     document.querySelectorAll('#items'+which+' tr').forEach(tr=>{
-      const v=num(tr.querySelector('.qty'))*num(tr.querySelector('.price'));
+      const qty=num(tr.querySelector('.qty')),base=num(tr.querySelector('.price'));
+      const th=num(tr.querySelector('.qty-th')),sale=num(tr.querySelector('.price-sale'));
+      const useSale=(th>0&&sale>0&&qty>=th);
+      const eff=useSale?sale:base;
+      const v=qty*eff;
       s+=v;tr.querySelector('.sub').textContent=D(v);
+      const ps=tr.querySelector('.price-show');
+      if(ps)ps.innerHTML=D(eff)+(useSale?' <span class="disc-tag">優惠</span>':'');
     });return s;
   }
   function recalc(){
@@ -766,7 +793,7 @@
   let AUTH={token:'',email:''};
   let STATE_CLIENT=null;        // 客戶簽署資料 {selectedPlan,signatureImg,signedAt}
   let STATE_CLIENT_PLAN='';     // 客戶當前勾選的方案
-  let SIG_DRAWN=false;
+  /* 簽名狀態改由 SIG_PADS 逐處追蹤（見下方簽名板區） */
   const _qs=new URLSearchParams(location.search);
   const PAGE_MODE=_qs.get('mode')||'';   // ''=編輯 / sign=客戶簽署 / view=唯讀
   const PAGE_ID=_qs.get('id')||'';
@@ -828,7 +855,8 @@
       area:v('area'+w),
       items:[...document.querySelectorAll('#items'+w+' tr')].map(tr=>({
         name:tr.querySelector('.item-name').value,qty:tr.querySelector('.qty').value,
-        unit:tr.querySelector('.unit').value,price:tr.querySelector('.price').value
+        unit:tr.querySelector('.unit').value,price:tr.querySelector('.price').value,
+        qtyTh:tr.querySelector('.qty-th').value,priceSale:tr.querySelector('.price-sale').value
       }))
     });
     const cats=[...document.querySelectorAll('#cats .acat')].map(c=>({
@@ -901,7 +929,7 @@
     document.getElementById('taxOn').checked=!!s.taxOn;
     setMode(s.mode||'A');
     STATE_CLIENT=s.client||null;
-    if(STATE_CLIENT&&STATE_CLIENT.signatureImg){placeSignature(STATE_CLIENT.signatureImg,STATE_CLIENT.signedAt);if(STATE_CLIENT.selectedPlan)markChosenPlan(STATE_CLIENT.selectedPlan);}
+    if(STATE_CLIENT&&(STATE_CLIENT.signs||STATE_CLIENT.signatureImg)){placeSignatures(STATE_CLIENT.signs||{cust:STATE_CLIENT.signatureImg},STATE_CLIENT.signedAt);if(STATE_CLIENT.selectedPlan)markChosenPlan(STATE_CLIENT.selectedPlan);}
     refitItems();recalc();
   }
 
@@ -946,7 +974,7 @@
   function enterReadonly(fullLock){
     document.body.classList.add('clientmode');
     document.querySelectorAll('.sheet input,.sheet textarea,.sheet select').forEach(el=>{
-      const live=!fullLock&&(el.classList.contains('opt-chk')||el.classList.contains('cl-keep')||el.classList.contains('plan-choice'));
+      const live=!fullLock&&(el.classList.contains('opt-chk')||el.classList.contains('cl-keep')||el.classList.contains('plan-choice')||el.classList.contains('opt-qty'));
       if(live)return;
       if(el.type==='checkbox'||el.type==='radio')el.disabled=true;else el.readOnly=true;
     });
@@ -973,48 +1001,75 @@
     if(!b){b=document.createElement('div');b.id='_chosenBanner';b.className='chosen-banner';document.querySelector('.sign').parentNode.insertBefore(b,document.querySelector('.sign'));}
     b.textContent='客戶選擇方案：'+name;
   }
-  function buildSignaturePad(){
-    const box=document.getElementById('custSeals');if(!box)return;
-    box.innerHTML='<canvas id="sigPad" class="sig-pad" width="320" height="110"></canvas><button type="button" class="mini sig-clear no-print" onclick="clearSig()">清除簽名</button>';
-    const c=document.getElementById('sigPad'),ctx=c.getContext('2d');
+  /* ---- 簽名板（客戶簽章 + 施工說明 + 履保，三處各別手寫）---- */
+  const SIG_PADS=[];
+  function makePad(canvas){
+    const ctx=canvas.getContext('2d');
     ctx.lineWidth=2.2;ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='#1c1c1a';
-    let drawing=false,last=null;
-    const pos=e=>{const r=c.getBoundingClientRect(),t=e.touches?e.touches[0]:e;return {x:(t.clientX-r.left)*(c.width/r.width),y:(t.clientY-r.top)*(c.height/r.height)};};
+    let drawing=false,last=null;const rec={canvas,ctx,drawn:false};
+    const pos=e=>{const r=canvas.getBoundingClientRect(),t=e.touches?e.touches[0]:e;return {x:(t.clientX-r.left)*(canvas.width/r.width),y:(t.clientY-r.top)*(canvas.height/r.height)};};
     const start=e=>{drawing=true;last=pos(e);e.preventDefault();};
-    const move=e=>{if(!drawing)return;const p=pos(e);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(p.x,p.y);ctx.stroke();last=p;SIG_DRAWN=true;e.preventDefault();};
+    const move=e=>{if(!drawing)return;const p=pos(e);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(p.x,p.y);ctx.stroke();last=p;rec.drawn=true;e.preventDefault();};
     const end=()=>{drawing=false;};
-    c.addEventListener('mousedown',start);c.addEventListener('mousemove',move);window.addEventListener('mouseup',end);
-    c.addEventListener('touchstart',start,{passive:false});c.addEventListener('touchmove',move,{passive:false});c.addEventListener('touchend',end);
+    canvas.addEventListener('mousedown',start);canvas.addEventListener('mousemove',move);window.addEventListener('mouseup',end);
+    canvas.addEventListener('touchstart',start,{passive:false});canvas.addEventListener('touchmove',move,{passive:false});canvas.addEventListener('touchend',end);
+    return rec;
   }
-  function clearSig(){const c=document.getElementById('sigPad');if(c){c.getContext('2d').clearRect(0,0,c.width,c.height);SIG_DRAWN=false;}}
-  function placeSignature(sig,signedAt){
-    const box=document.getElementById('custSeals');if(box)box.innerHTML='<img class="seal" style="height:80px;width:auto" src="'+sig+'">';
+  function clearPad(idx){const r=SIG_PADS[idx];if(r){r.ctx.clearRect(0,0,r.canvas.width,r.canvas.height);r.drawn=false;}}
+  function buildSignPads(){
+    SIG_PADS.length=0;
+    const cust=document.getElementById('custSeals');
+    if(cust){
+      cust.innerHTML='<canvas class="sig-pad" width="320" height="110"></canvas><button type="button" class="mini sig-clear no-print">清除</button>';
+      const rec=makePad(cust.querySelector('canvas'));rec.key='cust';SIG_PADS.push(rec);
+      const i=SIG_PADS.length-1;cust.querySelector('.sig-clear').onclick=()=>clearPad(i);
+    }
+    document.querySelectorAll('.sig-slot').forEach(slot=>{
+      const cl=slot.closest('.clause');
+      if(cl&&cl.classList.contains('off'))return;
+      const key=slot.getAttribute('data-sign')||'sign';
+      slot.classList.add('has-pad');
+      slot.innerHTML='<span class="sig-inline"><canvas class="sig-pad-sm" width="240" height="64"></canvas><button type="button" class="mini sig-clear no-print">清除</button></span>';
+      const rec=makePad(slot.querySelector('canvas'));rec.key=key;SIG_PADS.push(rec);
+      const i=SIG_PADS.length-1;slot.querySelector('.sig-clear').onclick=()=>clearPad(i);
+    });
+  }
+  function placeSignatures(signs,signedAt){
+    if(!signs)return;
+    const cust=document.getElementById('custSeals');
+    if(cust&&signs.cust)cust.innerHTML='<img class="seal" style="height:80px;width:auto" src="'+signs.cust+'">';
     const dl=document.getElementById('custDate');
     if(dl){let ds='';if(signedAt){const d=new Date(signedAt);ds=d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate();}dl.textContent='日期：'+(ds||'　　　　　　');}
+    document.querySelectorAll('.sig-slot').forEach(slot=>{
+      const key=slot.getAttribute('data-sign');
+      if(signs[key]){slot.classList.add('has-pad');slot.innerHTML='<img class="seal-sm" src="'+signs[key]+'">';}
+    });
   }
   function enterClientMode(){
     document.body.classList.add('signing');enterReadonly(false);
-    buildPlanChoice();buildSignaturePad();
+    buildPlanChoice();buildSignPads();
   }
   function enterViewMode(signed){
     enterReadonly(true);
-    if(signed&&STATE_CLIENT&&STATE_CLIENT.signatureImg){placeSignature(STATE_CLIENT.signatureImg,STATE_CLIENT.signedAt);if(STATE_CLIENT.selectedPlan)markChosenPlan(STATE_CLIENT.selectedPlan);}
+    if(signed&&STATE_CLIENT){placeSignatures(STATE_CLIENT.signs||(STATE_CLIENT.signatureImg?{cust:STATE_CLIENT.signatureImg}:null),STATE_CLIENT.signedAt);if(STATE_CLIENT.selectedPlan)markChosenPlan(STATE_CLIENT.selectedPlan);}
     const hint=document.getElementById('signHint');if(hint)hint.textContent=signed?'本報價單已完成簽署':'唯讀檢視';
-    const btn=document.querySelector('.signbar .btn.primary');if(btn)btn.style.display='none';
+    document.querySelectorAll('.signbar .btn.primary,.client-submit').forEach(b=>{b.style.display='none';});
   }
   async function submitClientSign(){
     if(!STATE_CLIENT_PLAN)return toast('請先勾選您選擇的方案',false);
-    if(!SIG_DRAWN)return toast('請於下方簽名後再送出',false);
+    if(!SIG_PADS.length)return toast('找不到簽名欄位',false);
+    if(SIG_PADS.some(r=>!r.drawn))return toast('請於三處都簽名後再送出（施工說明、履保、客戶簽章）',false);
     if(!confirm('確認送出簽署？送出後將無法修改。'))return;
-    const sig=document.getElementById('sigPad').toDataURL('image/png');
+    const signs={};SIG_PADS.forEach(r=>{signs[r.key]=r.canvas.toDataURL('image/png');});
     const state=collectState();
-    state.client=STATE_CLIENT={selectedPlan:STATE_CLIENT_PLAN,signatureImg:sig,signedAt:new Date().toISOString()};
+    state.client=STATE_CLIENT={selectedPlan:STATE_CLIENT_PLAN,signs,signatureImg:signs.cust||'',signedAt:new Date().toISOString()};
     try{
       await cloudPost({action:'sign',id:PAGE_ID||state.meta.qNo,state});
-      placeSignature(sig,STATE_CLIENT.signedAt);
+      placeSignatures(signs,STATE_CLIENT.signedAt);
       document.body.classList.remove('signing');document.body.classList.add('signed');
-      document.querySelectorAll('.opt-chk,.cl-keep,.plan-choice').forEach(e=>e.disabled=true);
+      document.querySelectorAll('.opt-chk,.opt-qty,.cl-keep,.plan-choice').forEach(e=>e.disabled=true);
       const hint=document.getElementById('signHint');if(hint)hint.textContent='已完成簽署，感謝您！';
+      document.querySelectorAll('.client-submit').forEach(b=>{b.style.display='none';});
       toast('已完成簽署，感謝您！');
     }catch(e){toast('送出失敗：'+e.message,false);}
   }

@@ -759,9 +759,9 @@
      （GAS_URL / CLIENT_ID / ALLOWED 由 平安住 自行填入）
      ============================================================ */
   const CONFIG={
-    GAS_URL:'',      // ① Apps Script 部署網址，以 /exec 結尾
-    CLIENT_ID:'',    // ② Google OAuth 用戶端 ID，結尾為 .apps.googleusercontent.com
-    ALLOWED:[]       // ③ 可登入編輯的 Gmail（請用小寫）；留空＝交由後端把關
+    GAS_URL:'https://script.google.com/macros/s/AKfycbxEpSnSjisZhC9_DnRCjzBkbl0ysSXTgJtbvWIinxdUpTfdSGQ09Cnjnyc9ZNOX10momQ/exec',      // ① Apps Script 部署網址，以 /exec 結尾
+    CLIENT_ID:'997649882653-5v29pd08p0u8gt4uldrp7nkqt6n5479a.apps.googleusercontent.com',    // ② Google OAuth 用戶端 ID，結尾為 .apps.googleusercontent.com
+    ALLOWED:['s986013@gmail.com','e0938910726@gmail.com','elva0321@gmail.com','yuengshih@gmail.com','daifar168@gmail.com']       // ③ 可登入編輯的 Gmail（請用小寫）；留空＝交由後端把關
   };
   let AUTH={token:'',email:''};
   let STATE_CLIENT=null;        // 客戶簽署資料 {selectedPlan,signatureImg,signedAt}

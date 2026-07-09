@@ -111,6 +111,19 @@
   body.modeB .plans{grid-template-columns:1fr;}
   body.modeB .plan-tag{display:none;}
   body.modeB .colB{display:none;}
+  /* 一般版：可切換顯示 PLAN A 或 PLAN B */
+  .bplan-pick{display:none;}
+  body.modeB .bplan-pick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 14px;font-size:13px;color:var(--muted);letter-spacing:.04em;}
+  .seg2{border:1px solid var(--hair-strong);background:var(--field);color:var(--ink);padding:6px 16px;border-radius:2px;cursor:pointer;font-size:13px;letter-spacing:.05em;}
+  .seg2.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .seg2:disabled{opacity:.45;cursor:not-allowed;}
+  .lockbtn{border:1px solid var(--brass);background:var(--brass-soft);color:var(--brass);padding:5px 12px;border-radius:2px;cursor:pointer;font-size:12px;letter-spacing:.03em;}
+  /* 切成顯示 B：藏 A、顯示 B（含比較表對應欄位）*/
+  body.modeB.showB .plan.a{display:none;}
+  body.modeB.showB .plan.b{display:flex;}
+  body.modeB.showB .cmp th:nth-child(2),
+  body.modeB.showB .cmp td:nth-child(2){display:none;}
+  body.modeB.showB .colB{display:table-cell;}
 
   /* ---- 加價購 ---- */
   .acat{border:1px solid var(--hair);border-radius:2px;padding:6px 14px 1px;margin-bottom:8px;}
@@ -192,6 +205,10 @@
     .plan table{font-size:11.5px;}
     .plan thead th,.plan tbody td{padding-left:2px;padding-right:2px;}
     .toolbar{padding:10px 12px;gap:8px;}
+    /* 手機：登入＋雲端按鈕獨立成一整排，避免被擠到看不到；未登入時醒目提示 */
+    .toolbar .brand{margin-right:8px;}
+    .toolbar .cloud-grp{flex:1 1 100%;justify-content:flex-start;}
+    .toolbar #authChip:not(.ok){color:#f0c98a;border-color:var(--brass);font-weight:600;}
     .signbar{padding:10px 14px;gap:8px;}
     .client-submit .btn.big{width:100%;}
     /* 開啟雲端清單在手機可換行 */
@@ -450,6 +467,11 @@
   <!-- 雙方案防水報價 -->
   <div class="sec">
     <div class="sec-h"><span class="no">01</span><h2 id="specTitle">防水規格 ‧ 雙方案比較</h2><span class="en">SPECIFICATION</span></div>
+    <div class="bplan-pick no-print" id="bPlanPick">顯示方案：
+      <button type="button" class="seg2 active" id="bpA" onclick="setBPlan('A')">PLAN A</button>
+      <button type="button" class="seg2" id="bpB" onclick="setBPlan('B')">PLAN B</button>
+      <button type="button" class="lockbtn" id="bpLock" style="display:none" onclick="toggleBPlanLock()">🔒 已簽署，解鎖修改</button>
+    </div>
     <div class="plans">
       <div class="plan a">
         <div class="plan-h">
@@ -482,7 +504,7 @@
           </table>
         </div>
         <button class="addrow no-print" onclick="addItem('B')">＋ 新增項目</button>
-        <div class="plan-sub"><span>方案 B 工程合計</span><span id="psubB">NT$ 0</span></div>
+        <div class="plan-sub"><span id="psubLabelB">方案 B 工程合計</span><span id="psubB">NT$ 0</span></div>
       </div>
     </div>
   </div>
@@ -885,8 +907,41 @@
     document.getElementById('segA').classList.toggle('active',!isB);
     document.getElementById('segB').classList.toggle('active',isB);
     document.getElementById('specTitle').textContent=isB?'防水規格 ‧ 報價明細':'防水規格 ‧ 雙方案比較';
+    // 一般版：顯示中的方案標題統一為「工程合計」；比較版：分開標示 A／B
     document.getElementById('psubLabelA').textContent=isB?'工程合計':'方案 A 工程合計';
+    const _lb=document.getElementById('psubLabelB');if(_lb)_lb.textContent=isB?'工程合計':'方案 B 工程合計';
+    // 進入一般版時，讓 PLAN A/B 切換鈕反映目前選擇
+    if(isB){const showB=document.body.classList.contains('showB');
+      const a=document.getElementById('bpA'),b=document.getElementById('bpB');
+      if(a)a.classList.toggle('active',!showB);if(b)b.classList.toggle('active',showB);}
     sync();recalc();refitItems();
+  }
+  /* 一般版：選擇顯示 PLAN A 或 PLAN B */
+  let BPLAN_UNLOCKED=false;                 // 已簽署的單，需按「解鎖修改」才可切換
+  function quoteIsSigned(){return !!(STATE_CLIENT&&(STATE_CLIENT.signedAt||STATE_CLIENT.signatureImg));}
+  function bplanLocked(){return quoteIsSigned()&&PAGE_MODE===''&&!BPLAN_UNLOCKED;}
+  function refreshBPlanLock(){
+    const a=document.getElementById('bpA'),b=document.getElementById('bpB'),L=document.getElementById('bpLock');
+    const locked=bplanLocked();
+    if(a)a.disabled=locked;if(b)b.disabled=locked;
+    if(L){
+      L.style.display=(quoteIsSigned()&&PAGE_MODE==='')?'inline-flex':'none';
+      L.textContent=locked?'🔒 已簽署，解鎖修改':'🔓 已解鎖，切換後存檔才會覆蓋';
+    }
+  }
+  function toggleBPlanLock(){
+    if(!BPLAN_UNLOCKED&&!confirm('這張報價單已有客戶簽名。\n切換方案只改變「顯示的方案」，不會動到客戶已簽的內容；但若之後按「雲端儲存」覆蓋，客戶收到的方案將以你這次為準。\n\n確定要解鎖修改方案嗎？'))return;
+    BPLAN_UNLOCKED=!BPLAN_UNLOCKED;refreshBPlanLock();
+  }
+  function setBPlan(p,force){
+    if(!force&&bplanLocked()){toast('已簽署的報價單方案已鎖定，請先點「解鎖修改」',false);return;}
+    const showB=(p==='B');
+    document.body.classList.toggle('showB',showB);
+    const a=document.getElementById('bpA'),b=document.getElementById('bpB');
+    if(a)a.classList.toggle('active',!showB);if(b)b.classList.toggle('active',showB);
+    // 一般版時，客戶簽署所記錄的方案跟著切換
+    if(document.body.classList.contains('modeB'))STATE_CLIENT_PLAN=showB?'B':'A';
+    recalc();refitItems();
   }
   function autosize(t){t.style.height='auto';t.style.height=t.scrollHeight+'px';}
 
@@ -936,7 +991,7 @@
     (function go(){
       if(!(window.google&&google.accounts&&google.accounts.id))return setTimeout(go,300);
       google.accounts.id.initialize({client_id:CONFIG.CLIENT_ID,callback:onGoogleCredential});
-      google.accounts.id.renderButton(slot,{type:'standard',theme:'filled_black',size:'medium',text:'signin_with',shape:'rectangular'});
+      google.accounts.id.renderButton(slot,{type:'standard',theme:'filled_black',size:'large',text:'signin_with',shape:'rectangular'});
     })();
   }
   function renderAuthChip(){
@@ -945,9 +1000,13 @@
   }
   function requireLogin(){
     if(AUTH.token)return true;
-    toast('請先用 Gmail 登入（工具列右上角）',false);
+    // 手機（尤其 iOS Safari）的自動登入常被「防止跨網站追蹤」擋掉，
+    // 因此改為：捲到最上方 → 明顯閃動登入鈕 → 提示手動點按，不只依賴 One Tap。
+    try{window.scrollTo({top:0,behavior:'smooth'});}catch(e){window.scrollTo(0,0);}
+    toast('請先點工具列上方藍色的「使用 Google 登入」按鈕登入',false);
     try{if(window.google&&google.accounts&&google.accounts.id)google.accounts.id.prompt();}catch(e){}
-    const g=document.getElementById('gbtn');if(g){g.classList.add('flash');setTimeout(()=>g.classList.remove('flash'),1600);}
+    const g=document.getElementById('gbtn');
+    if(g){g.classList.add('flash');setTimeout(()=>g.classList.remove('flash'),2400);}
     return false;
   }
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
@@ -1012,6 +1071,7 @@
     );
     return {
       v:1,mode:document.body.classList.contains('modeB')?'B':'A',
+      bPlan:document.body.classList.contains('showB')?'B':'A',
       meta:{coPhone:v('coPhone'),coTax:v('coTax'),qDate:v('qDate'),qNo:v('qNo'),cName:v('cName'),cContact:v('cContact'),cPhone:v('cPhone'),cAddr:v('cAddr')},
       planA:plan('A'),planB:plan('B'),
       cats,taxOn:document.getElementById('taxOn').checked,
@@ -1057,7 +1117,9 @@
     if(!(s.photos||[]).length)addPhotoRow();
     document.getElementById('taxOn').checked=!!s.taxOn;
     setMode(s.mode||'A');
+    setBPlan(s.bPlan||'A',true);
     STATE_CLIENT=s.client||null;
+    BPLAN_UNLOCKED=false;refreshBPlanLock();
     if(STATE_CLIENT&&(STATE_CLIENT.signs||STATE_CLIENT.signatureImg)){placeSignatures(STATE_CLIENT.signs||{cust:STATE_CLIENT.signatureImg},STATE_CLIENT.signedAt);if(STATE_CLIENT.selectedPlan)markChosenPlan(STATE_CLIENT.selectedPlan);}
     refitItems();recalc();
   }
@@ -1068,6 +1130,7 @@
     if(!requireLogin())return;
     const id=(document.getElementById('qNo').value||'').trim();
     if(!id)return toast('請先填寫報價單編號',false);
+    if(quoteIsSigned()&&!confirm('這張報價單已完成客戶簽署。\n覆蓋儲存會更新雲端內容（含你剛切換的方案）。\n\n確定要覆蓋嗎？'))return;
     try{await cloudPost({action:'save',token:AUTH.token,id,state:collectState()});toast('已儲存至雲端：'+id);}
     catch(e){toast('儲存失敗：'+e.message,false);}
     return id;
@@ -1165,17 +1228,16 @@
     if(!confirm('要以目前內容複製出一張全新的報價單嗎？\n（沿用所有內容，給新單號、日期改為今天，並清除客戶簽名）'))return;
     document.body.classList.add('loading');
     try{
-      // 已登入時先抓雲端清單，算出不重複的新單號
       if(CONFIG.GAS_URL&&AUTH.token){
         try{const r=await cloudList();if(r&&r.ok&&r.items)OP_ITEMS=r.items;}catch(e){}
       }
       const st=collectState();
-      st.client=null;                          // 變回草稿
+      st.client=null;
       const today=todayStr(new Date());
-      st.meta.qDate=today;                     // 日期改今天
-      st.meta.qNo=nextQuoteNo(today);          // 產生不重複新單號
+      st.meta.qDate=today;
+      st.meta.qNo=nextQuoteNo(today);
       applyState(st);
-      clearSignArtifacts();                    // 清掉前一張殘留的簽名／選擇方案痕跡
+      clearSignArtifacts();
       document.body.classList.remove('signing','signed','clientmode');
       window.scrollTo({top:0,behavior:'smooth'});
       toast('已複製為新報價單：'+st.meta.qNo+'，記得按「雲端儲存」');
@@ -1209,7 +1271,7 @@
   }
   function buildPlanChoice(){
     const row=document.querySelector('.cmp-pick');
-    if(document.body.classList.contains('modeB')){STATE_CLIENT_PLAN='A';if(row)row.style.display='none';return;}
+    if(document.body.classList.contains('modeB')){STATE_CLIENT_PLAN=document.body.classList.contains('showB')?'B':'A';if(row)row.style.display='none';return;}
     const cmp=document.querySelector('.cmp');
     if(cmp&&!document.getElementById('_planPick')){
       const tip=document.createElement('div');tip.id='_planPick';tip.className='plan-pick-tip no-print';

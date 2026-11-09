@@ -311,6 +311,11 @@
   .signbar .ttl{font-family:"Noto Serif TC";font-weight:700;letter-spacing:.06em;margin-right:auto;}
   .signbar .ttl small{display:block;font-family:"Cormorant Garamond";font-size:11px;letter-spacing:.24em;color:#bdbcae;font-weight:500;}
   body.clientmode .no-print{display:none!important;}
+  @media screen{
+    body.clientmode .signbar.no-print{display:flex!important;}
+    body.signing .client-submit.no-print{display:block!important;}
+    body.signing .sig-clear.no-print{display:inline-block!important;}
+  }
   body.clientmode .clause.off{display:none!important;}
   body.clientmode .ncat.off{display:none!important;}
   body.clientmode .cl-chk{display:none!important;}

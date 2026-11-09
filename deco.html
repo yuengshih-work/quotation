@@ -1296,11 +1296,23 @@
   }
 
   /* ---------- 雲端儲存 / 開啟 / 複製 ---------- */
+  /* ---- 防止覆蓋已簽署單：存檔前先查雲端狀態 ---- */
+  let REMOTE_SIGNED_ID='';
+  async function remoteSignedConflict(id){
+    try{
+      const r=await cloudGet(id);
+      if(!r||!r.ok||r.status!=='signed')return false;
+      const local=!!(STATE_CLIENT&&(STATE_CLIENT.signedAt||STATE_CLIENT.signatureImg));
+      return !local;
+    }catch(e){return false;}
+  }
   async function cloudSave(){
     if(!CONFIG.GAS_URL)return toast('尚未設定後端網址（CONFIG.GAS_URL）',false);
     if(!requireLogin())return;
     const id=(document.getElementById('qNo').value||'').trim();
     if(!id)return toast('請先填寫報價單編號',false);
+    if(await remoteSignedConflict(id))return toast('客戶已在雲端完成簽署，此頁是舊版本，為避免蓋掉簽名已停止儲存。請用「開啟雲端」重新載入。',false);
+    if(STATE_CLIENT&&(STATE_CLIENT.signedAt||STATE_CLIENT.signatureImg)&&!confirm('這張報價單已完成客戶簽署。\n覆蓋儲存會更新雲端內容。\n\n確定要覆蓋嗎？'))return;
     try{await cloudPost({action:'save',token:AUTH.token,id,state:collectState()});markSaved();toast('已儲存至雲端：'+id);}
     catch(e){toast('儲存失敗：'+e.message,false);}
     return id;
@@ -1492,6 +1504,8 @@
     state.client=STATE_CLIENT={signs,signatureImg:signs.cust||'',signedAt:new Date().toISOString()};
     try{
       await cloudPost({action:'sign',id:PAGE_ID||state.meta.qNo,state});
+      {let ok=false;for(let k=0;k<3&&!ok;k++){await new Promise(r=>setTimeout(r,1500));try{const g=await cloudGet(PAGE_ID||state.meta.qNo);ok=!!(g&&g.ok&&g.status==='signed');}catch(e){}}
+       if(!ok)throw new Error('雲端尚未確認收到簽署，請檢查網路後再按一次送出');}
       placeSignatures(signs,STATE_CLIENT.signedAt);
       document.body.classList.remove('signing');document.body.classList.add('signed');
       document.querySelectorAll('.cl-keep,.esc-need').forEach(e=>e.disabled=true);
@@ -1573,6 +1587,7 @@
     if(js===LAST_SAVED_JSON)return;
     if(js.length>9000000){autoChip('內容過大，請改用手動存檔',true);return;}
     AUTOSAVE_BUSY=true;
+    if(REMOTE_SIGNED_ID===id||await remoteSignedConflict(id)){AUTOSAVE_BUSY=false;REMOTE_SIGNED_ID=id;autoChip('客戶已簽署，自動存檔停止（請重新開啟雲端）',true);return;}
     autoChip('自動存檔中…');
     try{
       await cloudPost({action:'save',token:AUTH.token,id,state:st});

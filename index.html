@@ -1006,15 +1006,40 @@
     const p=decodeJwt(resp.credential);if(!p)return;
     const email=(p.email||'').toLowerCase();
     if(CONFIG.ALLOWED.length&&CONFIG.ALLOWED.indexOf(email)<0){toast('此帳號未授權：'+email,false);return;}
-    AUTH.token=resp.credential;AUTH.email=email;renderAuthChip();toast('已登入：'+email);
+    AUTH.token=resp.credential;AUTH.email=email;AUTH.exp=(+p.exp||0)*1000;saveAuth();renderAuthChip();toast('已登入：'+email);
   }
+  /* ---- 一次登入：防水／裝潢兩支報價系統共用同一個登入（存在本機，Google 憑證約 1 小時到期）---- */
+  const AUTH_KEY='ps_gauth';
+  function saveAuth(){try{localStorage.setItem(AUTH_KEY,JSON.stringify({t:AUTH.token,e:AUTH.email,x:AUTH.exp||0}));}catch(e){}}
+  function clearAuth(){try{localStorage.removeItem(AUTH_KEY);}catch(e){}}
+  function authValid(){return !!AUTH.token&&(!AUTH.exp||AUTH.exp-Date.now()>60000);}
+  function restoreAuth(){
+    if(PAGE_MODE!=='')return false;            // 客戶簽署頁不帶入員工登入
+    let s=null;try{s=JSON.parse(localStorage.getItem(AUTH_KEY)||'null');}catch(e){}
+    if(!s||!s.t)return false;
+    const em=String(s.e||'').toLowerCase();
+    if(CONFIG.ALLOWED.length&&CONFIG.ALLOWED.indexOf(em)<0){clearAuth();return false;}
+    if(!(+s.x-Date.now()>60000))return 'expired';
+    AUTH.token=s.t;AUTH.email=em;AUTH.exp=+s.x;renderAuthChip();return true;
+  }
+  function expireAuth(){
+    AUTH={token:'',email:''};clearAuth();
+    const c=document.getElementById('authChip');if(c){c.classList.remove('ok');c.textContent='登入已逾時';}
+    const b=document.getElementById('logoutBtn');if(b)b.style.display='none';
+    const g=document.getElementById('gbtn');if(g)g.style.display='flex';
+  }
+  try{window.addEventListener('storage',ev=>{if(ev.key!==AUTH_KEY)return;
+    if(!ev.newValue){if(AUTH.token)expireAuth();const c=document.getElementById('authChip');if(c)c.textContent='未登入';return;}
+    if(restoreAuth()===true&&typeof autoChip==='function')autoChip('已登入');});}catch(e){}
   function initAuth(){
     const slot=document.getElementById('gbtn');if(!slot)return;
     if(!CONFIG.CLIENT_ID){slot.innerHTML='';document.getElementById('authChip').textContent='（未設定登入）';return;}
+    const _r=restoreAuth();
     (function go(){
       if(!(window.google&&google.accounts&&google.accounts.id))return setTimeout(go,300);
-      google.accounts.id.initialize({client_id:CONFIG.CLIENT_ID,callback:onGoogleCredential});
+      google.accounts.id.initialize({client_id:CONFIG.CLIENT_ID,callback:onGoogleCredential,auto_select:true});
       google.accounts.id.renderButton(slot,{type:'standard',theme:'filled_black',size:'large',text:'signin_with',shape:'rectangular'});
+      if(_r==='expired'){try{google.accounts.id.prompt();}catch(e){}}
     })();
   }
   function renderAuthChip(){
@@ -1027,7 +1052,7 @@
     if(!AUTH.token){toast('目前未登入',false);return;}
     if(!confirm('確定要登出？\n\n目前畫面上的報價內容不會消失，但登出後無法存到雲端，也無法產生簽署連結。'))return;
     try{if(window.google&&google.accounts&&google.accounts.id)google.accounts.id.disableAutoSelect();}catch(e){}
-    AUTH={token:'',email:''};
+    AUTH={token:'',email:''};clearAuth();
     const c=document.getElementById('authChip');
     if(c){c.classList.remove('ok');c.textContent='未登入';}
     const b=document.getElementById('logoutBtn');if(b)b.style.display='none';
@@ -1036,6 +1061,7 @@
     toast('已登出');
   }
   function requireLogin(){
+    if(AUTH.token&&!authValid())expireAuth();
     if(AUTH.token)return true;
     // 手機（尤其 iOS Safari）的自動登入常被「防止跨網站追蹤」擋掉，
     // 因此改為：捲到最上方 → 明顯閃動登入鈕 → 提示手動點按，不只依賴 One Tap。
@@ -1483,6 +1509,7 @@
     if(PAGE_MODE!=='')return;
     if(AUTOSAVE_BUSY)return;
     if(!CONFIG.GAS_URL)return;
+    if(AUTH.token&&!authValid())expireAuth();
     if(!AUTH.token){autoChip('自動存檔待命：請先登入',true);return;}
     const id=(document.getElementById('qNo').value||'').trim();
     if(!id){autoChip('自動存檔待命：請先填單號',true);return;}

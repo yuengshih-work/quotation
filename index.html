@@ -324,6 +324,11 @@
   .op-row .op-id{flex:0 0 130px;font-weight:600;letter-spacing:.02em;}
   .op-row .op-addr{flex:1;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .op-row .op-badge{flex:0 0 auto;font-size:10.5px;color:#fff;background:var(--brass);border-radius:9px;padding:1px 7px;}
+  .op-row .op-pdf{flex:0 0 auto;font-size:10.5px;color:var(--brass);border:1px solid var(--brass);border-radius:9px;padding:0 7px;cursor:pointer;}
+  .op-row .op-pdf:hover{background:var(--brass);color:#fff;}
+  .op-tools2{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:-4px 0 12px;font-size:12.5px;}
+  .op-tools2 .op-chk{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink);}
+  .op-tools2 .btn{font-size:12px;padding:7px 12px;}
   .op-empty{padding:22px;text-align:center;color:var(--muted);font-size:12.5px;}
   .op-direct{justify-content:stretch;}
   .op-direct #opDirect{flex:1;}
@@ -414,6 +419,8 @@
     <button class="btn" onclick="cloudOpen()">開啟雲端</button>
     <button class="btn" onclick="copyQuote()">複製報價單</button>
     <button class="btn primary" onclick="makeSignLink()">線上簽名</button>
+    <button class="btn" id="snapBtn" style="display:none" onclick="snapshotCurrent()">存簽署快照</button>
+    <button class="btn" id="snapOpenBtn" style="display:none" onclick="openSnapPdf()">快照 PDF</button>
     <span id="autoWrap" style="display:inline-flex;gap:8px;align-items:center">
       <select class="autosel" id="autoSel" onchange="setAutosave(this.value)">
         <option value="0">自動存檔：關</option>
@@ -448,6 +455,10 @@
     <div class="op-tools">
       <input id="opSearch" placeholder="搜尋地址 / 客戶 / 單號…" oninput="renderOpenList()">
       <select id="opDate" onchange="renderOpenList()"><option value="">全部日期</option></select>
+    </div>
+    <div class="op-tools2">
+      <label class="op-chk"><input type="checkbox" id="opSigned" onchange="renderOpenList()"> 只看已簽署</label>
+      <button type="button" class="btn" onclick="snapshotAllMissing()">補存未存快照的已簽署單</button>
     </div>
     <div id="opList" class="op-list"></div>
     <div class="acts op-direct">
@@ -1185,6 +1196,8 @@
     BPLAN_UNLOCKED=false;refreshBPlanLock();
     if(STATE_CLIENT&&(STATE_CLIENT.signs||STATE_CLIENT.signatureImg)){placeSignatures(STATE_CLIENT.signs||{cust:STATE_CLIENT.signatureImg},STATE_CLIENT.signedAt);if(STATE_CLIENT.selectedPlan)markChosenPlan(STATE_CLIENT.selectedPlan);}
     refitItems();recalc();
+    if(!quoteIsSigned()){CURRENT_SNAP_URL='';CURRENT_LOADED_ID='';}
+    refreshSnapBtn();
     if(typeof markSaved==='function')markSaved();
   }
 
@@ -1235,7 +1248,7 @@
       OP_ITEMS=(r.items||[]).filter(i=>String((i&&i.id)||'').indexOf('PA-')===0);
       buildDateOptions();renderOpenList();
       const lst=document.getElementById('opList');
-      lst.onclick=ev=>{const b=ev.target.closest('.op-row');if(b&&b.dataset.id)openById(b.dataset.id);};
+      lst.onclick=ev=>{const pf=ev.target.closest('.op-pdf');if(pf){ev.stopPropagation();window.open(pf.dataset.url,'_blank');return;}const b=ev.target.closest('.op-row');if(b&&b.dataset.id)openById(b.dataset.id);};
       document.getElementById('opSearch').value='';
       document.getElementById('openBox').classList.add('open');
     }catch(e){toast('讀取失敗：'+e.message,false);}
@@ -1249,9 +1262,11 @@
   function renderOpenList(){
     const q=(document.getElementById('opSearch').value||'').trim().toLowerCase();
     const d=document.getElementById('opDate').value;
+    const onlySigned=!!(document.getElementById('opSigned')||{}).checked;
     const list=document.getElementById('opList');
     const items=OP_ITEMS.filter(i=>{
       if(d&&i.qDate!==d)return false;
+      if(onlySigned&&i.status!=='signed')return false;
       if(q){const hay=((i.id||'')+' '+(i.cAddr||'')+' '+(i.cName||'')).toLowerCase();if(hay.indexOf(q)<0)return false;}
       return true;
     });
@@ -1262,6 +1277,7 @@
         '<span class="op-id">'+esc(i.id)+'</span>'+
         '<span class="op-addr">'+esc(i.cAddr||i.cName||'')+'</span>'+
         (i.status==='signed'?'<span class="op-badge">已簽署</span>':'')+
+        (i.snapUrl&&i.snapUrl!=='(pending)'?'<span class="op-pdf" data-url="'+esc(i.snapUrl)+'" title="開啟簽署快照 PDF">PDF</span>':'')+
       '</button>').join('');
   }
   async function openById(id){closeOpen();await loadQuote(id);}
@@ -1269,7 +1285,7 @@
   async function loadQuote(id){
     document.body.classList.add('loading');
     try{const r=await cloudGet(id);
-      if(r&&r.ok&&r.state){applyState(r.state);toast('已載入：'+id+(r.status==='signed'?'（已簽署）':''));}
+      if(r&&r.ok&&r.state){applyState(r.state);CURRENT_LOADED_ID=id;CURRENT_SNAP_URL=r.snapUrl||'';refreshSnapBtn();toast('已載入：'+id+(r.status==='signed'?'（已簽署）':''));}
       else toast('找不到此報價單',false);
     }catch(e){toast('讀取失敗：'+e.message,false);}
     finally{document.body.classList.remove('loading');}
@@ -1446,7 +1462,239 @@
       const hint=document.getElementById('signHint');if(hint)hint.textContent='已完成簽署，感謝您！';
       document.querySelectorAll('.client-submit').forEach(b=>{b.style.display='none';});
       toast('已完成簽署，感謝您！');
-    }catch(e){toast('送出失敗：'+e.message,false);}
+    }catch(e){toast('送出失敗：'+e.message,false);return;}
+    autoSnapshotAfterSign(PAGE_ID||state.meta.qNo);   // 自動存一份含簽名的 PDF 到雲端
+  }
+
+
+  /* ============================================================
+     已簽署快照：把報價單（含簽名）轉成 A4 PDF 存到雲端
+     ‧ 客戶送出簽署後自動產生
+     ‧ 編輯端可單張「存簽署快照」或在「開啟雲端」批次補存
+     ============================================================ */
+  const SNAP_LIBS=[
+    'https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.11/dist/html2canvas-pro.min.js',
+    'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js'
+  ];
+  let CURRENT_SNAP_URL='';
+  let CURRENT_LOADED_ID='';        // 從雲端開啟的單號
+  function loadScriptOnce(src){
+    return new Promise((res,rej)=>{
+      if(document.querySelector('script[data-snap="'+src+'"]'))return res();
+      const s=document.createElement('script');s.src=src;s.async=true;s.setAttribute('data-snap',src);
+      s.onload=()=>res();s.onerror=()=>{s.remove();rej(new Error('無法載入轉檔元件'));};
+      document.head.appendChild(s);
+    });
+  }
+  async function loadSnapLibs(){for(const u of SNAP_LIBS)await loadScriptOnce(u);}
+  const SNAP_W=718;                 // A4 可印寬度 190mm ≒ 718px（96dpi）
+  const PDF_M={l:10,r:10,t:12,b:14}; // mm
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+  /* 在 html2canvas 的複製文件裡，套用「列印樣式」並把 textarea / input 換成一般文字，避免只畫一行 */
+  async function prepSnapClone(doc,el){
+    let css='';
+    for(const ss of Array.from(doc.styleSheets)){
+      let rules;try{rules=ss.cssRules;}catch(e){continue;}
+      if(!rules)continue;
+      for(const r of Array.from(rules)){
+        if(r.type===4&&/print/.test(r.media.mediaText)){
+          for(const ir of Array.from(r.cssRules))if(ir.type===1)css+=ir.cssText+'\n';
+        }
+      }
+    }
+    css+='html,body{background:#fff!important;}'+
+      '.sheet{width:'+SNAP_W+'px!important;max-width:none!important;margin:0!important;padding:0!important;box-shadow:none!important;opacity:1!important;}'+
+      '.no-print,.sig-clear,.plan-choice-wrap,.client-submit,.cmp-pick,.plan-pick-tip,.photo-move-hint,.photo-del,.row-del,.addrow,.del,.mini{display:none!important;}'+
+      '.snap-txt{white-space:pre-wrap!important;word-break:break-word;overflow-wrap:anywhere;overflow:hidden;}'+
+      '.snap-inp{white-space:nowrap!important;overflow:hidden;}';
+    const st=doc.createElement('style');st.textContent=css;doc.head.appendChild(st);
+    doc.body.classList.remove('loading');
+    try{if(doc.fonts&&doc.fonts.ready)await Promise.race([doc.fonts.ready,sleep(4000)]);}catch(e){}
+    await sleep(60);
+    const win=doc.defaultView;
+    const COPY=['fontFamily','fontSize','fontWeight','fontStyle','lineHeight','letterSpacing','color','textAlign',
+      'paddingTop','paddingRight','paddingBottom','paddingLeft','marginTop','marginRight','marginBottom','marginLeft',
+      'borderTopWidth','borderTopStyle','borderTopColor','borderRightWidth','borderRightStyle','borderRightColor',
+      'borderBottomWidth','borderBottomStyle','borderBottomColor','borderLeftWidth','borderLeftStyle','borderLeftColor',
+      'backgroundColor','boxSizing','verticalAlign','flexGrow','flexShrink','flexBasis','textIndent'];
+    const copyStyle=(from,to,cs)=>{COPY.forEach(p=>{to.style[p]=cs[p];});};
+    // textarea → div（可自動換行）
+    Array.from(el.querySelectorAll('textarea')).forEach(ta=>{
+      const cs=win.getComputedStyle(ta);if(cs.display==='none')return;
+      const d=doc.createElement('div');d.className='snap-txt';
+      copyStyle(ta,d,cs);
+      d.style.width=cs.width;d.style.display=(cs.display.indexOf('inline')===0)?'inline-block':'block';
+      d.style.minHeight=cs.lineHeight;
+      d.textContent=ta.value||'';
+      ta.replaceWith(d);
+    });
+    // 文字輸入框 → span（維持寬高、垂直置中）
+    Array.from(el.querySelectorAll('input')).forEach(inp=>{
+      const t=(inp.type||'text').toLowerCase();
+      if(['text','number','date','tel','email','search','url',''].indexOf(t)<0)return;
+      const cs=win.getComputedStyle(inp);if(cs.display==='none')return;
+      const sp=doc.createElement('span');sp.className='snap-inp';
+      copyStyle(inp,sp,cs);
+      sp.style.width=cs.width;sp.style.height=cs.height;
+      sp.style.display=(cs.display==='block'||cs.display==='flex')?'flex':'inline-flex';
+      sp.style.alignItems='center';
+      sp.style.justifyContent=cs.textAlign==='right'||cs.textAlign==='end'?'flex-end':(cs.textAlign==='center'?'center':'flex-start');
+      sp.textContent=inp.value||'';
+      inp.replaceWith(sp);
+    });
+    // 照片：img(object-fit/position) → 背景圖，確保裁切位置與畫面一致
+    Array.from(el.querySelectorAll('.photo-img')).forEach(img=>{
+      const cs=win.getComputedStyle(img);if(cs.display==='none'||!img.getAttribute('src'))return;
+      const d=doc.createElement('div');
+      d.style.width='100%';d.style.height='100%';
+      d.style.backgroundImage='url("'+img.getAttribute('src')+'")';
+      d.style.backgroundSize='cover';d.style.backgroundRepeat='no-repeat';
+      d.style.backgroundPosition=img.style.objectPosition||cs.objectPosition||'50% 50%';
+      img.replaceWith(d);
+    });
+    await sleep(30);
+    // 量測可分頁的位置：不要切到任何「小於半頁」的區塊中間
+    const top=el.getBoundingClientRect().top;
+    const pageCss=(297-PDF_M.t-PDF_M.b)*SNAP_W/(210-PDF_M.l-PDF_M.r);
+    const iv=[];
+    Array.from(el.querySelectorAll('*')).forEach(n=>{
+      const r=n.getBoundingClientRect();
+      if(r.height>0&&r.height<pageCss*0.5)iv.push([r.top-top,r.bottom-top]);
+    });
+    // 區塊標題（01/02…）跟著下一段一起走
+    Array.from(el.querySelectorAll('.sec-h')).forEach(h=>{
+      const r=h.getBoundingClientRect();iv.push([r.top-top,r.bottom-top+70]);
+    });
+    return {iv,height:el.getBoundingClientRect().height,pageCss};
+  }
+  function findCut(iv,start,pageCss,total){
+    const limit=start+pageCss;
+    if(limit>=total)return total;
+    const lo=start+pageCss*0.55;
+    for(let y=Math.floor(limit);y>=lo;y--){
+      let bad=false;
+      for(let i=0;i<iv.length;i++){const a=iv[i];if(a[0]+0.5<y&&y<a[1]-0.5){bad=true;break;}}
+      if(!bad)return y;
+    }
+    return Math.floor(limit);
+  }
+  async function buildSnapshotPdf(){
+    await loadSnapLibs();
+    const h2c=(window.html2canvas&&window.html2canvas.default)||window.html2canvas;
+    const JsPDF=(window.jspdf&&window.jspdf.jsPDF)||window.jsPDF;
+    if(!h2c||!JsPDF)throw new Error('轉檔元件未就緒');
+    prepPhotosForPrint();refitItems();
+    try{if(document.fonts&&document.fonts.ready)await document.fonts.ready;}catch(e){}
+    const sheets=Array.from(document.querySelectorAll('.sheet')).filter(s=>!s.classList.contains('empty'));
+    const CW=210-PDF_M.l-PDF_M.r;
+    const slices=[];
+    for(const sh of sheets){
+      // 依預估高度決定解析度（手機畫布有像素上限）
+      const estH=Math.max(800,sh.scrollHeight*Math.max(1,(sh.clientWidth||SNAP_W)/SNAP_W));
+      const scale=Math.max(1,Math.min(2,Math.sqrt(14e6/(SNAP_W*estH))));
+      let info=null;
+      const canvas=await h2c(sh,{scale,backgroundColor:'#ffffff',useCORS:true,logging:false,
+        windowWidth:1100,scrollX:0,scrollY:0,
+        onclone:(doc,el)=>prepSnapClone(doc,el||doc.querySelector('.sheet')).then(r=>{info=r;})});
+      if(!info)throw new Error('版面量測失敗');
+      const k=canvas.width/SNAP_W;
+      const total=Math.min(info.height,canvas.height/k);
+      let y=0;
+      while(y<total-2){
+        const nxt=findCut(info.iv,y,info.pageCss,total);
+        const hCss=Math.max(1,nxt-y);
+        const c=document.createElement('canvas');
+        c.width=canvas.width;c.height=Math.round(hCss*k);
+        const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);
+        g.drawImage(canvas,0,Math.round(y*k),canvas.width,c.height,0,0,c.width,c.height);
+        slices.push({data:c.toDataURL('image/jpeg',0.88),hMm:hCss*CW/SNAP_W});
+        y=nxt;
+      }
+    }
+    if(!slices.length)throw new Error('沒有可輸出的內容');
+    window._lastSnapSlices=slices;
+    const pdf=new JsPDF({unit:'mm',format:'a4',orientation:'portrait',compress:true});
+    slices.forEach((s,i)=>{
+      if(i)pdf.addPage();
+      pdf.addImage(s.data,'JPEG',PDF_M.l,PDF_M.t,CW,s.hMm,undefined,'FAST');
+      pdf.setFontSize(9);pdf.setTextColor(118,117,110);
+      pdf.text((i+1)+' / '+slices.length,105,297-6,{align:'center'});
+    });
+    return pdf.output('datauristring').split(',')[1];
+  }
+  /* 上傳快照；客戶端不帶 token，後端只允許剛簽完的那一次 */
+  async function uploadSnapshot(id,withToken){
+    const pdf=await buildSnapshotPdf();
+    await cloudPost({action:'snapshot',id,pdf,token:withToken?AUTH.token:''});
+    return pdf.length;
+  }
+  /* 客戶簽完後自動執行（失敗不影響簽署結果） */
+  async function autoSnapshotAfterSign(id){
+    try{
+      toast('簽署完成，正在保存簽署存檔…');
+      await uploadSnapshot(id,false);
+      toast('已完成簽署，感謝您！');
+    }catch(e){
+      console.log('[snapshot] client upload failed',e);
+      toast('已完成簽署，感謝您！');
+    }
+  }
+  /* 編輯端：目前這張存快照（先從雲端重新載入，確保內容 = 客戶簽的版本） */
+  async function snapshotCurrent(){
+    if(!CONFIG.GAS_URL)return toast('尚未設定後端網址',false);
+    if(!requireLogin())return;
+    const id=CURRENT_LOADED_ID||(document.getElementById('qNo').value||'').trim();
+    if(!id)return toast('請先開啟一張已簽署的報價單',false);
+    if(!quoteIsSigned())return toast('這張報價單尚未簽署，無法存簽署快照',false);
+    if(!confirm('將重新從雲端載入「'+id+'」（畫面上未儲存的修改會被取代），\n再存一份含簽名的 PDF 到雲端「已簽署快照」資料夾。\n\n確定執行？'))return;
+    document.body.classList.add('loading');
+    try{
+      const r=await cloudGet(id);
+      if(!r||!r.ok||!r.state||r.status!=='signed'){toast('雲端上這張不是已簽署狀態',false);return;}
+      if(typeof clearSignArtifacts==='function')clearSignArtifacts();
+      applyState(r.state);
+      document.body.classList.remove('loading');
+      toast('正在產生 PDF…');
+      await uploadSnapshot(id,true);
+      const chk=await cloudGet(id);CURRENT_SNAP_URL=(chk&&chk.snapUrl)||'';
+      refreshSnapBtn();
+      toast(CURRENT_SNAP_URL?'已存入雲端：'+id+'（可按「快照 PDF」開啟）':'已送出，請稍後在「開啟雲端」確認',!!CURRENT_SNAP_URL||undefined);
+    }catch(e){toast('快照失敗：'+e.message,false);}
+    finally{document.body.classList.remove('loading');}
+  }
+  function openSnapPdf(){if(CURRENT_SNAP_URL)window.open(CURRENT_SNAP_URL,'_blank');}
+  function refreshSnapBtn(){
+    const b=document.getElementById('snapBtn'),o=document.getElementById('snapOpenBtn');
+    const show=PAGE_MODE===''&&quoteIsSigned();
+    if(b)b.style.display=show?'':'none';
+    if(o)o.style.display=(show&&CURRENT_SNAP_URL)?'':'none';
+  }
+  /* 「開啟雲端」：批次補存所有尚無快照的已簽署報價單 */
+  async function snapshotAllMissing(){
+    if(!requireLogin())return;
+    const todo=(OP_ITEMS||[]).filter(i=>i.status==='signed'&&!i.snapUrl);
+    if(!todo.length)return toast('所有已簽署報價單都已有快照');
+    if(!confirm('共有 '+todo.length+' 張已簽署報價單尚未存快照，要逐張產生 PDF 存到雲端嗎？\n（畫面會依序載入每張單，請勿關閉頁面；完成前請不要操作）'))return;
+    closeOpen();
+    let ok=0,fail=[];
+    for(let n=0;n<todo.length;n++){
+      const id=todo[n].id;
+      toast('補存快照 '+(n+1)+' / '+todo.length+'：'+id);
+      try{
+        const r=await cloudGet(id);
+        if(!r||!r.ok||!r.state||r.status!=='signed')throw new Error('非已簽署');
+        if(typeof clearSignArtifacts==='function')clearSignArtifacts();
+        applyState(r.state);
+        await sleep(250);
+        await uploadSnapshot(id,true);
+        todo[n].snapUrl='(pending)';ok++;
+      }catch(e){fail.push(id);console.log('[snapshot]',id,e);}
+    }
+    try{const r=await cloudList();if(r&&r.ok)OP_ITEMS=r.items||[];}catch(e){}
+    const cur=todo.length?todo[todo.length-1].id:'';CURRENT_LOADED_ID=cur;
+    const it=(OP_ITEMS||[]).find(i=>i.id===cur);CURRENT_SNAP_URL=(it&&it.snapUrl)||'';refreshSnapBtn();
+    toast('補存完成：成功 '+ok+' 張'+(fail.length?'，失敗 '+fail.length+' 張（'+fail.join('、')+'）':''),!fail.length||undefined);
   }
 
   /* ---- 啟動（依網址模式）---- */
